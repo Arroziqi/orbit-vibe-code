@@ -48,6 +48,6 @@ class ExecutionResult:
             "action": self.task.action,
             "target": self.task.target,
             "outcome": self.outcome.value,
-            "message": self.message,
+            "log_message": self.message,
             "date": self.executed_at.isoformat(),
         }

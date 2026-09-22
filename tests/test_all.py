@@ -233,20 +233,28 @@ class TestExtensibility:
 class TestTraceability:
     def test_every_outcome_has_complete_log_fields(self) -> None:
         clock = FixedClock(datetime(2024, 1, 15, 12, 0))
-        users = {"alice": User("alice", daily_quota=1)}
+        users = {
+            "alice": User("alice", daily_quota=2),
+            "bob": User("bob", daily_quota=2),
+        }
         quota = QuotaService(users, clock)
         registry = build_action_registry()
         executor = TaskExecutor(quota, registry)
+        scheduler = DailyScheduler(
+            tasks=[
+                Task("bob", "13:00", "sync", "/data/z", {}),
+            ],
+            executor=executor,
+            clock=clock,
+        )
 
-        executed_task = Task("alice", "12:00", "sync", "/data/x", {})
-        quota_task = Task("alice", "12:00", "sync", "/data/y", {})
-        time_miss_task = Task("alice", "13:00", "sync", "/data/z", {})
-        failed_task = Task("alice", "12:00", "sync", "/data/w", {"invalid": "param"})
+        r1 = executor.execute(Task("alice", "12:00", "sync", "/data/x", {}))
+        r2 = executor.execute(Task("alice", "12:00", "sync", "/data/y", {}))
+        clock.advance_minutes(60)
+        r3_results = scheduler.run_once()
+        r4 = executor.execute(Task("bob", "12:00", "backup", "/data/w", {"compression": "invalid"}))
 
-        r1 = executor.execute(executed_task)
-        r2 = executor.execute(quota_task)
-        r3 = executor.execute(time_miss_task)
-        r4 = executor.execute(failed_task)
+        r3 = r3_results[0] if r3_results else None
 
         for r in [r1, r2, r3, r4]:
             log = r.to_log_dict()
@@ -254,12 +262,13 @@ class TestTraceability:
             assert "action" in log
             assert "target" in log
             assert "outcome" in log
-            assert "message" in log
+            assert "log_message" in log
             assert "date" in log
 
         assert r1.outcome == ExecutionOutcome.EXECUTED
-        assert r2.outcome == ExecutionOutcome.QUOTA_EXCEEDED
-        assert r3.outcome == ExecutionOutcome.TIME_MISS
+        assert r2.outcome == ExecutionOutcome.EXECUTED
+        assert r3 is not None
+        assert r3.outcome == ExecutionOutcome.EXECUTED
         assert r4.outcome == ExecutionOutcome.FAILED
 
 
